@@ -212,7 +212,12 @@ hit_val check_intersection_sphere(vector3* origin, vector3* u, const sphere *sph
 
 	vector3 center_negative = difference_vector3(origin, center);
 	float dot = dot_product(u, &center_negative);
-	float determinant = dot * dot - (center->x * center->x + center->y * center->y + center->z * center->z - radius * radius);
+	//float determinant = dot * dot - (center->x * center->x + center->y * center->y + center->z * center->z - radius * radius);
+	float a = dot_product(u, u);
+	vector3 twice = sum_vector3(&center_negative, &center_negative);
+	float b = dot_product(&twice, u);
+	float c = dot_product(&center_negative, &center_negative) - radius * radius;
+	float determinant = b * b - 4 * a * c;
 	if(determinant < 0) return (hit_val){.first = false, .second = 0, .third = 0, .fourth = 0};
 
 	float sq = sqrt(determinant);
