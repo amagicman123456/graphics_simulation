@@ -105,6 +105,7 @@ std::function<void()> render =
 
 	size_t i = 0;
 
+
 	for (; i < C_gpu.size(); i += 2)
 	{
 		if (!C_gpu[i + 1])

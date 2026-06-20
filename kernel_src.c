@@ -210,20 +210,19 @@ hit_val check_intersection_sphere(vector3* origin, vector3* u, const sphere *sph
 
 	if(!u->is_normalized) normalize_vector3(u);
 
+	// using the quadratic formula directly without simplification
+
 	vector3 center_negative = difference_vector3(origin, center);
 	float dot = dot_product(u, &center_negative);
-	//float determinant = dot * dot - (center->x * center->x + center->y * center->y + center->z * center->z - radius * radius);
 	float a = dot_product(u, u);
-	//vector3 twice = sum_vector3(&center_negative, &center_negative);
-	//float b = dot_product(&twice, u);
 	float b = 2 * dot;
 	float c = dot_product(&center_negative, &center_negative) - radius * radius;
 	float determinant = b * b - 4 * a * c;
 	if(determinant < 0) return (hit_val){.first = false, .second = 0, .third = 0, .fourth = 0};
 
 	float sq = sqrt(determinant);
-	float dist1 = -dot - sq;
-	float dist2 = -dot + sq;
+	float dist1 = (-b - sq) / (2 * a);
+	float dist2 = (-b + sq) / (2 * a);
 
 	float distance = (dist1 > 0) ? dist1 : (dist2 > 0 ? dist2 : -1);
 	if (distance < 0) return (hit_val){.first = 0, .second = 0, .third = 0, .fourth = 0};
@@ -270,25 +269,53 @@ hit_val check_intersection_sphere(vector3* origin, vector3* u, const sphere *sph
 /*
 	triangle part
 */
-#if 0
 typedef struct triangle{
-	const vector3 center;
-	const vector3 normal;
 	const vector3 v1, v2, v3;
 	const uint img;
+
+	const vector3 center;
+	const vector3 normal;
 } triangle;
 hit_val check_intersection_triangle(vector3* origin, vector3* u, const triangle *tri, const uint img, const uint row_bytes, uint width, uint height){
-	if(tri == NULL) return (hit_val){.first = 0, .second = 0, .third = 0, .fourth = 0};
+	if(!tri) return (hit_val){.first = 0, .second = 0, .third = 0, .fourth = 0};
 
 	if(!u->is_normalized) normalize_vector3(u);
 
+	// moller-trumbore intersection algorithm implementation
 
+	const float epsilon = FLT_EPSILON;
 
-	hit_val h = {.first = true, .second = distance, .third = 0, .fourth = 0};
+	hit_val h = {.first = 0, .second = 0, .third = 0, .fourth = 0};
 
 	if(img == 0 || row_bytes == 0 || width == 0 || height == 0) return h;
 
-	vector3 hit_spot;
+	vector3 first_edge = difference_vector3(&tri->v2, &tri->v1);
+	vector3 second_edge = difference_vector3(&tri->v3, &tri->v1);
+
+	vector3 normal = cross_product(&first_edge, &second_edge);
+	if(dot_product(&normal, u) > 0) return h;
+
+	vector3 u_cross_second_edge = cross_product(u, &second_edge);
+	float determinant = dot_product(&first_edge, &u_cross_second_edge);
+	if(fabs(determinant) < epsilon) return h; // check if parallel
+
+	float inverse_det = 1.0f / determinant;
+	vector3 s = difference_vector3(origin, &tri->v1);
+	float uu = inverse_det * dot_product(&s, &u_cross_second_edge);
+
+	if(uu < -epsilon || uu - 1 > epsilon) return h; // outside second edge
+
+	vector3 s_cross_first_edge = cross_product(&s, &first_edge);
+	float v = inverse_det * dot_product(u, &s_cross_first_edge);
+
+	if(v < -epsilon || uu + v - 1 > epsilon) return h; // outside first edge
+
+	float t = inverse_det * dot_product(&second_edge, &s_cross_first_edge);
+	if(t <= epsilon) return h;
+
+	vector3 ray_vector_t = multiply_vector3_by_scalar(u, t);
+	vector3 hit_spot = sum_vector3(origin, &ray_vector_t);
+/*
 	float magnitude = magnitude_vector3(&hit_spot);
 	if(magnitude == 0){
 		printf("oh no the magnitude is 0\n");
@@ -296,6 +323,7 @@ hit_val check_intersection_triangle(vector3* origin, vector3* u, const triangle 
 	}
 	//normalize_vector3(&hit_spot);
 	hit_spot.is_normalized = true;
+
     hit_spot.x /= magnitude, hit_spot.y /= magnitude, hit_spot.z /= magnitude;
 	{
 		float uu, vv;
@@ -317,8 +345,13 @@ hit_val check_intersection_triangle(vector3* origin, vector3* u, const triangle 
 		h.fourth = hit_index;
 		return h;
 	}
+*/
+	h.first = true;
+	h.second = 1.0f;
+	h.third = 255;
+	h.fourth = 0;
+	return h;
 }
-#endif
 /*
 	big rendering function, sorry.
 */
@@ -394,6 +427,8 @@ __kernel void render(
         //{.center = (vector3){.x = 0, .y = -700, .z = 0}, .radius = 300, .img = 3},
         //{.center = (vector3){.x = 0, .y = 25, .z = 200}, .radius = sqrt(10000.0f), .img = 5}
     };
+	triangle tri = {.v1 = {.x = 0, .y = 10, .z = 10}, .v2 = {.x = 10, .y = -10, .z = 10}, .v3 = {.x = -10, .y = -10, .z = 10}, .img = 3};
+
     //END INJECTOR.CPP CALL
 
 	/*
@@ -416,17 +451,18 @@ __kernel void render(
 		rotate_by_quaternion(&pixel, &rotation);
 		normalize_vector3(&pixel);
 
-    	hit_val h[len];
+    	hit_val h[len + 1];
 
     	for (int i = 0; i < len; i++)
     	{
     		h[i] = check_intersection_sphere(&origin, &pixel, &object_arr[i], object_arr[i].img, row_bytes[object_arr[i].img - 1], img_width[object_arr[i].img - 1], img_height[object_arr[i].img - 1]);
     	}
+    	h[len] = check_intersection_triangle(&origin, &pixel, &tri, tri.img, row_bytes[tri.img - 1], img_width[tri.img - 1], img_height[tri.img - 1]);
 
 		float min = -1;
 		int min_index = -1;
 
-		for(int i = 0; i < len; ++i){
+		for(int i = 0; i < len + 1; ++i){
 			if(!h[i].first) continue;
 			if(h[i].first && min_index == -1){min = h[i].second; min_index = i; continue;}
 			if(h[i].second < min){
@@ -434,17 +470,13 @@ __kernel void render(
 				min = h[i].second;
 			}
 		}
-
 		if(min_index == -1){
 			C[index] = bg_rgb;
 			C[index + 1] = 0;
 		}else
 		{
 			C[index] = h[min_index].third;
-			if (h[min_index].fourth)
-			{
-				C[index + 1] = h[min_index].fourth;
-			}
+			C[index + 1] = !!(h[min_index].fourth) * h[min_index].fourth;
 		}
 
 /*

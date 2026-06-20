@@ -36,7 +36,7 @@ extern float origin_x, origin_y, origin_z;
 /*
     more debugging purposes, see some values before it all comes crashing down
 */
-int SEG_ARR[5];
+int SEG_ARR[5]{};
 bool TEST_SEG = false;
 void segfault_handler(int sig) {
     std::cerr << "guys sigsegv " << sig << " oh also " << std::boolalpha << TEST_SEG << '\n';
